@@ -1,5 +1,8 @@
 import itertools
 import networkx as nx
+import numpy as np
+import scipy as sc
+from sklearn.cluster import KMeans
 
 
 class ClusteringMethods():
@@ -26,18 +29,35 @@ class ClusteringMethods():
         return G
 
     @staticmethod
-    def _assert_validity_graph(G, k=None):
+    def generate_coloring(clustering, random_colors=False):
         '''
+        Generates a coloring that maps nodes to colors depending on what cluster
+        they belong to. If the number of clusters k is over 10, random colors
+        are selected.
         '''
-        assert nx.is_connected(G), "Graph must be connected."
-        if (k is not None):
-            assert 2 <= k <= G.number_of_nodes(), "Number of clusters must be in the range [2, number of nodes in G]."
+        k = len(clustering)
+        nodes = [i for j in clustering for i in j]
+        nodes.sort()
+        color_list = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple',
+                      'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan']
+
+        if random_colors or (k > 10):
+            color_list = ["#%06x" % np.random.randint(0, 0xFFFFFF) for _ in range(k)]
+
+        color_map = [color_list[i] for node in nodes for i in range(k) if node in clustering[i]]
+
+        return color_map
+
 
     def girvan_newman(self, G, k):
         '''
-        Description. Graph G, k clusters
+        Applies the Girvan-Newman clustering algorithm to networkx graph G with
+        k clusters, and returns a list of k sets of nodes belonging to
+        different clusters.
         '''
-        self._assert_validity_graph(G, k)
+        assert nx.is_connected(G), "Graph must be connected."
+        assert 2 <= k <= G.number_of_nodes(), "Number of clusters must be in the range [2, |V|], where |V| is the number of nodes of G."
+
         comp = nx.algorithms.community.girvan_newman(G)
         clusters = itertools.islice(comp, k-2, k-1)
 
@@ -45,9 +65,13 @@ class ClusteringMethods():
 
     def highly_connected_subgraphs(self, G, base_case=True):
         '''
-        Description. Graph G
+        Applies the recursive HCS-clustering algorithm to networkx graph G. The
+        number of clusters cannot be specified beforehand. Returns a list of k 
+        sets of nodes belonging to different clusters, and k.
         '''
-        self._assert_validity_graph(G)
+        assert nx.is_connected(G), "Graph must be connected."
+
+        G = G.copy()
         min_edge_cut = nx.algorithms.connectivity.minimum_edge_cut(G)
         
         if not (len(min_edge_cut) > G.number_of_nodes() / 2):
@@ -60,11 +84,47 @@ class ClusteringMethods():
                 G = nx.compose(H1, H2)
 
         if base_case:
-            return list(nx.connected_components(G))
+            clusters = list(nx.connected_components(G))
+            k = len(clusters)
+            return (clusters, k)
         else:
             return G
 
+    def spectral(self, G, k, version):
+        '''
+        Applies the spectral clustering algorithm to networkx graph G with k
+        clusters, and returns a list of k sets of nodes belonging to different
+        clusters.
 
-cm = ClusteringMethods()
-G = cm.create_example_graph()
-print(cm.highly_connected_subgraphs(G,6))
+        Three versions are available which all use a different Laplacian matrix
+        corresponding to G:
+            - the regular Laplacian matrix (unnormalized);
+            - the symmetrically normalized Laplacian matrix (normalized-SM);
+            - the left normalized Laplacian matrix (normalized-NJW).
+        '''
+        assert 2 <= k <= G.number_of_nodes() - 2, "Number of clusters must be in the range [2, |V|-2], where |V| is the number of nodes of G."
+        assert version in ['unnormalized', 'normalized-SM', 'normalized-NJW'], "Version must be 'unnormalized', 'normalized-SM', or 'normalized-NJW'."
+
+        if (version == 'unnormalized'):
+            laplacian = nx.laplacian_matrix(G).asfptype()
+            eigenvals, eigenvecs = sc.sparse.linalg.eigs(laplacian, k=k, which='SM')
+            eigenvecs = [x.real for x in eigenvecs]
+
+        if (version == 'normalized-SM'):
+            laplacian = nx.laplacian_matrix(G).toarray()
+            degree_matrix = np.diag([x[1] for x in G.degree])
+            normalized_laplacian = np.matmul(np.linalg.pinv(degree_matrix), laplacian)
+            eigenvals, eigenvecs = sc.sparse.linalg.eigs(normalized_laplacian, k=k, which='SM')
+            eigenvecs = [x.real for x in eigenvecs]
+
+        if (version == 'normalized-NJW'):
+            normalized_laplacian = nx.normalized_laplacian_matrix(G).asfptype()
+            eigenvals, unnormalized_eigenvecs = sc.sparse.linalg.eigs(normalized_laplacian, k=k, which='SM')
+            unnormalized_eigenvecs = [x.real for x in unnormalized_eigenvecs]
+            eigenvecs = [[x/np.linalg.norm(row) for x in row] for row in unnormalized_eigenvecs]
+
+        kmeans = KMeans(n_clusters=k, n_init='auto')
+        labels = kmeans.fit(eigenvecs).labels_
+        clusters = [set([x for x in G.nodes if labels[x-1] == i]) for i in range(k)]
+
+        return clusters
