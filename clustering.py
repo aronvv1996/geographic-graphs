@@ -29,15 +29,14 @@ class ClusteringMethods():
         return G
 
     @staticmethod
-    def generate_coloring(clustering, random_colors=False):
+    def generate_coloring(G, clustering, random_colors=False):
         '''
         Generates a coloring that maps nodes to colors depending on what cluster
         they belong to. If the number of clusters k is over 10, random colors
         are selected.
         '''
         k = len(clustering)
-        nodes = [i for j in clustering for i in j]
-        nodes.sort()
+        nodes = G.nodes()
         color_list = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple',
                       'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan']
 
@@ -45,9 +44,9 @@ class ClusteringMethods():
             color_list = ["#%06x" % np.random.randint(0, 0xFFFFFF) for _ in range(k)]
 
         color_map = [color_list[i] for node in nodes for i in range(k) if node in clustering[i]]
+        dictionary = dict(zip(G.nodes, color_map))
 
-        return color_map
-
+        return dictionary
 
     def girvan_newman(self, G, k):
         '''
@@ -125,6 +124,6 @@ class ClusteringMethods():
 
         kmeans = KMeans(n_clusters=k, n_init='auto')
         labels = kmeans.fit(eigenvecs).labels_
-        clusters = [set([x for x in G.nodes if labels[x-1] == i]) for i in range(k)]
+        clusters = [set([n for (n,l) in zip(G.nodes,labels) if l == i]) for i in range(k)]
 
         return clusters
