@@ -20,9 +20,11 @@ Still very much WIP, 'main.py' defines a few methods that can be run but code ha
 
 The project builds on the following datasets:
 
- - Bordering countries: Honestly unsure where I got it from, has also undergone some manual changes for compatibility with GeoPandas. Still looking into a better alternative for this sort of data.
+ - Bordering countries: [country-borders](https://github.com/geodatasource/country-borders/blob/master/GEODATASOURCE-COUNTRY-BORDERS.CSV).
+ - Cities: [simplemaps](https://simplemaps.com/data/world-cities), download the free 'Basic' CSV file.
+ - Country centroids: [world-countries-centroids](https://github.com/gavinr/world-countries-centroids/blob/master/dist/countries.csv), four entries were incompatible with the other datasets and added manually from [countries_csv](https://developers.google.com/public-data/docs/canonical/countries_csv).
  - Road network: [SEDAC](https://sedac.ciesin.columbia.edu/data/set/groads-global-roads-open-access-v1), requires login. Although the code is by default designed for the Global GeoDataBase, you can download any of the other available GeoDataBases and adjust the 'self.road_file' in the 'data.py' file.
- - Cities: [simplemaps](https://simplemaps.com/data/world-cities), download the free 'Basic' CSV file, no login required.
+ 
 
  Put the files into a folder called 'data' in the repository.
 

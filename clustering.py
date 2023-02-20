@@ -13,6 +13,7 @@ class ClusteringMethods():
         clustering methods to networkx Graph objects.
         '''
 
+    #TODO: delete this.
     @staticmethod
     def create_example_graph():
         '''

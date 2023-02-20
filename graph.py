@@ -25,7 +25,6 @@ class GraphMethods():
 
         return G
     
-    #TODO
     def countryborders_to_weightedgraph(self, cb, centroids):
         '''
         Converts the countryborders dictionary into a weighted graph G. G has
@@ -36,14 +35,18 @@ class GraphMethods():
         G = nx.Graph()
         nodes = list(cb.keys())
         edges = [(x,y) for x in nodes for y in cb[x]]
+        weights = []
         for edge in edges:
             e0 = edge[0]
             e1 = edge[1]
-            c0 = (centroids[e0][1], centroids[e0][0])
-            c1 = (centroids[e1][1], centroids[e1][0])
-            weights = geopy.distance.geodesic(c0, c1).km
+            c0 = centroids[e0]
+            c1 = centroids[e1]
+            weights.append(geopy.distance.geodesic(c0, c1).km)
         weighted_edges = [(e0, e1, w) for ((e0, e1), w) in zip(edges, weights)]
-        G.add_nodes_from(nodes)
+        for node in nodes:
+            pos_lat = centroids[node][0]
+            pos_lng = centroids[node][1]
+            G.add_node(node, pos=(pos_lng, pos_lat))
         G.add_weighted_edges_from(weighted_edges)
         
         return G

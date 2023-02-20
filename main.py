@@ -2,121 +2,53 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+import os
 import scipy as sc
 
 from clustering import ClusteringMethods
 from data import DataLoader
 from graph import GraphMethods
+from plots import PlotMethods
+from randomgraph import RandomGraphs
 
+import warnings
+warnings.filterwarnings('ignore', message='The GeoDataFrame you are attempting to plot is empty. Nothing has been displayed.')
+
+
+cm = ClusteringMethods()
 dl = DataLoader()
 gm = GraphMethods()
-cm = ClusteringMethods()
+pm = PlotMethods()
+rg = RandomGraphs()
 
-def cluster_world(maxK, figsize):
-    '''
-    Generate and save multiplots of different clustering methods applied to
-    the bordering countries graph with various amounts of clusters.
-    '''
-    world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
-    cb = dl.load_countryborders()
-    print(type(cb))
-    G = gm.countryborders_to_graph(cb)
-    G = gm.biggest_component(G)
+cb = dl.load_countryborders()
+cc = dl.load_countrycentroids()
+WG = gm.countryborders_to_weightedgraph(cb, cc)
+weights = [WG.get_edge_data(e[0], e[1], 'weight')['weight'] for e in WG.edges]
 
-    clusters_HCS, k_HCS = cm.highly_connected_subgraphs(G)
-    colormap_HCS = cm.generate_coloring(G, clusters_HCS)
+i=70
+k=2
 
-    for k in range(2,maxK+1):
-        clusters_GM = cm.girvan_newman(G, k)
-        colormap_GM = cm.generate_coloring(G, clusters_GM)
-        clusters_SP_un = cm.spectral(G, k, version='unnormalized')
-        colormap_SP_un = cm.generate_coloring(G, clusters_SP_un)
-        clusters_SP_SM = cm.spectral(G, k, version='normalized-SM')
-        colormap_SP_SM = cm.generate_coloring(G, clusters_SP_SM)
-        clusters_SP_NJW = cm.spectral(G, k, version='normalized-NJW')
-        colormap_SP_NJW = cm.generate_coloring(G, clusters_SP_NJW)
-
-        fig, axs = plt.subplots(figsize=figsize, ncols=3, nrows=2)
-        fig.tight_layout()
-        world.plot(color='lightgrey', ax=axs[0,0])
-        world.plot(color='lightgrey', ax=axs[0,1])
-        world.plot(color='lightgrey', ax=axs[1,0])
-        world.plot(color='lightgrey', ax=axs[1,1])
-        world.plot(color='lightgrey', ax=axs[1,2])
-        for node in G.nodes:
-            world[world.name == node].plot(color=colormap_GM[node], ax=axs[0,0])
-            world[world.name == node].plot(color=colormap_HCS[node], ax=axs[0,1])
-            world[world.name == node].plot(color=colormap_SP_un[node], ax=axs[1,0])
-            world[world.name == node].plot(color=colormap_SP_SM[node], ax=axs[1,1])
-            world[world.name == node].plot(color=colormap_SP_NJW[node], ax=axs[1,2])
-        axs[0,0].set_title(f'Girvan Newman\n{k} clusters')
-        axs[0,1].set_title(f'Highly Connected Subgraphs\n{k_HCS} clusters')
-        axs[1,0].set_title(f'Unnormalized spectral clustering\n{k} clusters')
-        axs[1,1].set_title(f'Symmetrically normalized spectral clustering\n{k} clusters')
-        axs[1,2].set_title(f'Left normalized spectral clustering\n{k} clusters')
-        axs[0,2].axis('off')
-        
-        plt.savefig(f'figures\\cluster_world\\multiclustering_{k}')
-
-def road_network(country, figsize, version='all'):
-    '''
-    '''
-    roads = dl.load_roads(country=country, continent=None)
-
-    if (version == 'all' or version == 'normal'):
-        G = gm.roadnetwork_to_graph(roads, weighted=False)
-        plt.figure(figsize=figsize)
-        nx.draw(G, pos=nx.get_node_attributes(G, 'pos'), edge_color='lightgrey', node_size=3)
-        country = country.replace('.', '')
-        plt.savefig(f'figures\\road_network\\{country}')
-
-    if (version == 'all' or version == 'smooth'):
-        G = gm.roadnetwork_to_graph(roads, weighted=False)
-        G_smooth = gm.smoothen_graph(G)
-        plt.figure(figsize=figsize)
-        nx.draw(G_smooth, pos=nx.get_node_attributes(G_smooth, 'pos'), edge_color='lightgrey', node_size=3)
-        country = country.replace('.', '')
-        plt.savefig(f'figures\\road_network\\{country}_smooth')
-
-    if (version == 'all' or version == 'weighted'):
-        G_weighted = gm.roadnetwork_to_graph(roads, weighted=True)
-        plt.figure(figsize=figsize)
-        nx.draw(G_weighted, pos=nx.get_node_attributes(G_weighted, 'pos'), edge_color='lightgrey', node_size=3)
-        pos = nx.get_node_attributes(G_weighted, 'pos')
-        labels = nx.get_edge_attributes(G_weighted, 'weight')
-        labels = {e: "%.2f" % w for e,w in labels.items()}
-        nx.draw_networkx_edge_labels(G_weighted, pos=pos, edge_labels=labels)
-        country = country.replace('.', '')
-        plt.savefig(f'figures\\road_network\\{country}_weighted')
-
-def cluster_world_dist(maxK, figsize):
-    '''
-    '''
-    world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
-    country_geometries = world.apply(lambda x: x['geometry'], axis=1)
-    country_names = world.apply(lambda x: x['name'], axis=1)
-    centroids = dict(zip(country_names, country_geometries.centroid.map(lambda p: [y for y in p.coords][0])))
-
-    centroids.update({'Bahrain': (50.637772, 25.930414)})
-    centroids.update({'St. Lucia': (-60.978893, 13.909444)})
-    centroids.update({'St. Vincent and the Grenadines': (-61.287228, 12.984305)})
-    centroids.update({'Andorra': (1.601554, 42.546245)})
-
-    cb = dl.load_countryborders()
-    G = gm.countryborders_to_weightedgraph(cb, centroids)
-    
-    plt.figure(figsize=figsize)
-    nx.draw(G, pos=nx.get_node_attributes(G, 'pos'), edge_color='lightgrey', node_size=3)
-    pos = nx.get_node_attributes(G, 'pos')
-    labels = nx.get_edge_attributes(G, 'weight')
-    labels = {e: "%.2f" % w for e,w in labels.items()}
-    nx.draw_networkx_edge_labels(G, pos=pos, edge_labels=labels)
-    plt.show()
+G = rg.k_nearest_neighbors(WG.number_of_nodes(), k, pole_angle=i)
+degrees = [val for (node, val) in G.degree()]
+mean = np.mean(degrees)
+triangles = int(sum(nx.triangles(G).values())/3)
+conn_comp = nx.number_connected_components(G)
+clustering_coeff = nx.average_clustering(G)
+clique_number = nx.graph_clique_number(G)
+pm.plotSP_worldgraph(G, figsize=(20,20), filename=f'{k}NN_worldgraph_{i}_SP')
+pm.plot2D_worldgraph(G, figsize=(15,10), filename=f'{k}NN_worldgraph_{i}')
+pm.plot3D_worldgraph(G, figsize=(20,20), n_frames=72, filename=f'{k}NN_worldgraph_{i}',
+                        title=f'{k}-nearest-neighbors random graph',
+                        figtext=f'number of nodes: {G.number_of_nodes()}\n'+
+                                f'number of edges: {G.number_of_edges()}\n'+
+                                f'average degree: {mean:.3f}\n'+
+                                f'number of triangles: {triangles}\n'+
+                                f'connected components: {conn_comp}\n'+
+                                f'clustering coefficient: {clustering_coeff:.3f}')
 
 
-#cluster_world(maxK=2, figsize=(30,20))
-#road_network('Italy', figsize=(40,40))
-
+exit()
 
 country = 'Netherlands'
 roads = dl.load_roads(country=country)
