@@ -233,6 +233,7 @@ class PlotMethods():
         plt.ylabel('Latitude')
         if not os.path.exists(path):
             os.makedirs(path)
+        plt.tight_layout()
         plt.savefig(f'{path}\\{filename}')
         if show:
             plt.show()
@@ -263,6 +264,7 @@ class PlotMethods():
         nx.draw(G, pos=SP_pos, node_color='black', edge_color='grey', node_size=3, ax=ax)
         if not os.path.exists(path):
             os.makedirs(path)
+        plt.tight_layout()
         plt.savefig(f'{path}\\{filename}')
         if show:
             plt.show()
@@ -281,27 +283,26 @@ class PlotMethods():
         path = 'figures\\plot3D_graph'
         plt.figure(figsize=figsize)
         ax = plt.axes(projection='3d')
-        x, y, z = self.coords_to_cartesian(G.nodes(), radius)
+
+        pos = nx.get_node_attributes(G, 'pos')
+        x, y, z = self.coords_to_cartesian(list(pos.values()), radius)
         ax.scatter3D(x, y, z, s=3, color='black')
         for edge in G.edges:
             n0 = edge[0]
             n1 = edge[1]
-            x0, y0, z0 = self.coords_to_cartesian([n0], radius)
-            x1, y1, z1 = self.coords_to_cartesian([n1], radius)
+            x0, y0, z0 = self.coords_to_cartesian([pos[n0]], radius)
+            x1, y1, z1 = self.coords_to_cartesian([pos[n1]], radius)
             ax.plot([x0, x1], [y0, y1], [z0,z1], color='lightgrey')
         ax.set_xlim3d(-radius, radius)
         ax.set_ylim3d(-radius, radius)
         ax.set_zlim3d(-radius, radius)
-        ax.dist = 7
         ax.axis('equal')
         ax.set_axis_off()
-        plt.title(title, fontdict={'fontsize': 45})
-        plt.figtext(0.5, 0.1, figtext, fontdict={'fontsize': 25}, ha='center')
         if not os.path.exists(path):
             os.makedirs(path)
         for i in range(n_frames):
             ax.view_init(elev=10, azim=i*360/n_frames)
-            plt.savefig(f'{path}\\{filename}_{i:03}.png')
+            plt.savefig(f'{path}\\{filename}_{i:03}.png', bbox_inches='tight', pad_inches=-2.5)
         if show:
             plt.show()
         plt.close()

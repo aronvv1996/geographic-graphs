@@ -2,6 +2,8 @@ import itertools
 import networkx as nx
 import numpy as np
 import geopy.distance
+import scipy as sc
+
 
 class RandomGraphs():
 
@@ -25,6 +27,20 @@ class RandomGraphs():
             dictionary[(pair[0], pair[1])] = dist
             dictionary[(pair[1], pair[0])] = dist
         return dictionary
+
+    @staticmethod
+    def coords_to_cartesian(coords, radius=None):
+        '''
+        Converts a list of (lat,lon) coordinates into (x,y,z) coordinates on a
+        3D sphere with given radius.
+        '''
+        if radius is None:
+            radius = 6_371 #km
+        coords = [(np.deg2rad(lat), np.deg2rad(lon)) for (lat,lon) in coords]
+        x = [radius*np.cos(lat)*np.cos(lon) for (lat,lon) in coords]
+        y = [radius*np.cos(lat)*np.sin(lon) for (lat,lon) in coords]
+        z = [radius*np.sin(lat)             for (lat,lon) in coords]
+        return (x, y, z)
 
     def _uniform_random_points_sphere(self, n, pole_angle=90):
         '''
@@ -70,14 +86,19 @@ class RandomGraphs():
         G = nx.random_geometric_graph(n, r)
         return G
 
-    def ε_neighborhood(self, n, ε, pole_angle=90):
+    def ε_neighborhood(self, n, ε, pole_angle=90, pos=None):
         '''
         Returns the ε-neighborhood similarity graph constructed from a set
         of randomly distributed nodes on the globe. Every node is connected to
-        all other nodes within a geodesic distance of ε kilometers.
+        all other nodes within a geodesic distance of ε kilometers. The position
+        of nodes can be predefined through 'pos'.
         '''
         G = nx.Graph()
-        nodes = self._uniform_random_points_sphere(n, pole_angle)
+        if pos is None:
+            nodes = self._uniform_random_points_sphere(n, pole_angle)
+        if pos is not None:
+            nodes = pos
+
         distances = self.compute_geodesic_distances(nodes)
         edges = [(x,y) for x in nodes for y in nodes if 0 < distances[(x,y)] < ε]
         for node in nodes:
@@ -85,15 +106,20 @@ class RandomGraphs():
         G.add_edges_from(set(edges))
         return G
 
-    def k_nearest_neighbors(self, n, k, pole_angle=90):
+    def k_nearest_neighbors(self, n, k, pole_angle=90, pos=None):
         '''
         Returns the K-nearest-neighbors similarity graph constructed from a set
         of randomly distributed nodes on the globe. Every node is connected to
-        its k nearest neighbors.
+        its k nearest neighbors. The position of nodes can be predefined
+        through 'pos'.
         '''
         assert 1 <= k <= n-1, 'k must take values in the interval [1, n-1].'
         G = nx.Graph()
-        nodes = self._uniform_random_points_sphere(n, pole_angle)
+        if pos is None:
+            nodes = self._uniform_random_points_sphere(n, pole_angle)
+        if pos is not None:
+            nodes = pos
+
         distances = self.compute_geodesic_distances(nodes)
         edges = []
         for node in nodes:
@@ -104,15 +130,20 @@ class RandomGraphs():
         G.add_edges_from(set(edges))
         return G
 
-    def mutual_k_nearest_neighbors(self, n, k, pole_angle=90):
+    def mutual_k_nearest_neighbors(self, n, k, pole_angle=90, pos=None):
         '''
         Returns the mutual-K-nearest-neighbors similarity graph constructed from
         a set of randomly distributed nodes on the globe. A pair of nodes is
         connected if both nodes are in the k nearest neighbors of the other node.
+        The position of nodes can be predefined through 'pos'.
         '''
         assert 1 <= k <= n-1, 'k must take values in the interval [1, n-1].'
         G = nx.Graph()
-        nodes = self._uniform_random_points_sphere(n, pole_angle)
+        if pos is None:
+            nodes = self._uniform_random_points_sphere(n, pole_angle)
+        if pos is not None:
+            nodes = pos
+
         distances = self.compute_geodesic_distances(nodes)
         edges = []
         for node in nodes:
@@ -124,14 +155,19 @@ class RandomGraphs():
         G.add_edges_from(set(edges))
         return G
 
-    def relative_neighborhood(self, n, pole_angle=90):
+    def relative_neighborhood(self, n, pole_angle=90, pos=None):
         '''
         Returns the Random Neighborhood Graph constructed from a set of randomly
         distributed nodes on the globe. A pair of nodes is connected if they are
         at least as close to each other as they are to any other node.
+        The position of nodes can be predefined through 'pos'.
         '''
         G = nx.Graph()
-        nodes = self._uniform_random_points_sphere(n, pole_angle)
+        if pos is None:
+            nodes = self._uniform_random_points_sphere(n, pole_angle)
+        if pos is not None:
+            nodes = pos
+
         distances = self.compute_geodesic_distances(nodes)
         edges = []
         for i in nodes:
@@ -145,4 +181,80 @@ class RandomGraphs():
         for node in nodes:
             G.add_node(node, pos=node)
         G.add_edges_from(set(edges))
+        return G
+
+    def minimum_spanning_tree(self, n, pole_angle=90, pos=None):
+        '''
+        Returns the Minimum Spanning Tree constructed from a set of randomly
+        distributed nodes on the globe. Nodes are connected into one connected
+        component in such a way that the sum of distances of all edges is
+        minimized. The position of nodes can be predefined through 'pos'.
+        '''
+        G = nx.Graph()
+        if pos is None:
+            nodes = self._uniform_random_points_sphere(n, pole_angle)
+        if pos is not None:
+            nodes = pos
+
+        distances = self.compute_geodesic_distances(nodes)
+        edges = [(i, j, distances[(i,j)]) for i in nodes for j in nodes]
+        
+        for node in nodes:
+            G.add_node(node, pos=node)
+        G.add_weighted_edges_from(edges)
+        MST = nx.minimum_spanning_tree(G)
+
+        return MST
+
+    #TODO
+    def delaunay_triangulation(self, n, pole_angle=90, pos=None):
+        '''
+        Returns the Delaunay Triangulation constructed from a set of randomly
+        distributed nodes on the globe. A pair of nodes is connected if their
+        corresponding tiles in the Voronoi diagram share an edge. The position
+        of nodes can be predefined through 'pos'.
+        '''
+        G = nx.Graph()
+        if pos is None:
+            nodes = self._uniform_random_points_sphere(n, pole_angle)
+        if pos is not None:
+            nodes = pos
+        assert len(nodes) >= 4, 'Number of nodes must be at least 4.'
+            
+        distances = self.compute_geodesic_distances(nodes)
+        #Initial triangle
+        for n in nodes[:4]:
+            G.add_node(n, pos=n)
+        edges = [(x,y) for x in nodes[:4] for y in nodes[:4] if y!=x]
+        n0, n1, n2, n3 = nodes[:4]
+        triangles = [[n0,n1,n2], [n0,n1,n3], [n0,n2,n3], [n1,n2,n3]]
+
+        #Iterative process
+        for n in nodes[4:]:
+            G.add_node(n, pos=n)
+            cavity = []
+            for Δ in triangles:
+                n1, n2, n3 = Δ
+                cartesian_coords = self.coords_to_cartesian([n1,n2,n3,n], radius=1)
+                x1, x2, x3, x = cartesian_coords[0]
+                y1, y2, y3, y = cartesian_coords[1]
+                z1, z2, z3, z = cartesian_coords[2]
+
+                T = np.array([[1 , 1 , 1 , 1],
+                              [x1, x2, x3, x],
+                              [y1, y2, y3, y],
+                              [z1, z2, z3, z]])
+
+                vol = np.linalg.det(T)
+                if (vol < 0):
+                    cavity += [(n1,n2), (n2,n3), (n1,n3)]
+                    triangles.remove(Δ)
+
+            edges = [e for e in cavity if cavity.count(e)==1]
+            triangles += [[n, e0, e1] for (e0,e1) in edges]
+
+        edges = [((n1,n2), (n2,n3), (n1,n3)) for (n1,n2,n3) in triangles]
+        edges = [i for j in edges for i in j]
+        G.add_edges_from(edges)
+
         return G

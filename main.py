@@ -24,30 +24,17 @@ rg = RandomGraphs()
 cb = dl.load_countryborders()
 cc = dl.load_countrycentroids()
 WG = gm.countryborders_to_weightedgraph(cb, cc)
-weights = [WG.get_edge_data(e[0], e[1], 'weight')['weight'] for e in WG.edges]
+n = WG.number_of_nodes()
+pos = list(nx.get_node_attributes(WG, 'pos').values())
 
 i=70
-k=2
-
-G = rg.k_nearest_neighbors(WG.number_of_nodes(), k, pole_angle=i)
-degrees = [val for (node, val) in G.degree()]
-mean = np.mean(degrees)
-triangles = int(sum(nx.triangles(G).values())/3)
-conn_comp = nx.number_connected_components(G)
-clustering_coeff = nx.average_clustering(G)
-clique_number = nx.graph_clique_number(G)
-pm.plotSP_worldgraph(G, figsize=(20,20), filename=f'{k}NN_worldgraph_{i}_SP')
-pm.plot2D_worldgraph(G, figsize=(15,10), filename=f'{k}NN_worldgraph_{i}')
-pm.plot3D_worldgraph(G, figsize=(20,20), n_frames=72, filename=f'{k}NN_worldgraph_{i}',
-                        title=f'{k}-nearest-neighbors random graph',
-                        figtext=f'number of nodes: {G.number_of_nodes()}\n'+
-                                f'number of edges: {G.number_of_edges()}\n'+
-                                f'average degree: {mean:.3f}\n'+
-                                f'number of triangles: {triangles}\n'+
-                                f'connected components: {conn_comp}\n'+
-                                f'clustering coefficient: {clustering_coeff:.3f}')
+G = rg.relative_neighborhood(n, pole_angle=i, pos=pos)
 
 
+pm.plotSP_worldgraph(G, figsize=(20,20), filename=f'RNG_worldgraph_SP')
+pm.plot2D_worldgraph(G, figsize=(15,10), filename=f'RNG_worldgraph_2D')
+pm.plot3D_worldgraph(G, figsize=(20,20), n_frames=72, filename=f'RNG_worldgraph_3D', keep_frames=True)
+print(gm.write_results(G, save_as_file=False))
 exit()
 
 country = 'Netherlands'
