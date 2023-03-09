@@ -13,22 +13,6 @@ class ClusteringMethods():
         clustering methods to networkx Graph objects.
         '''
 
-    #TODO: delete this.
-    @staticmethod
-    def create_example_graph():
-        '''
-        Create a small example graph with 12 nodes.
-        '''
-        G = nx.Graph()
-        nodes = range(1,12)
-        edges = [(1,2),(1,11),(1,12),(2,3),(2,12),(3,4),(3,11),(3,12),(4,5),
-                 (4,6),(4,10),(5,6),(6,7),(7,8),(7,9),(7,10),(8,9),(8,10),
-                 (9,10),(10,11),(11,12)]
-        G.add_nodes_from(nodes)
-        G.add_edges_from(edges)
-
-        return G
-
     @staticmethod
     def generate_coloring(G, clustering, random_colors=False):
         '''
@@ -55,11 +39,11 @@ class ClusteringMethods():
         k clusters, and returns a list of k sets of nodes belonging to
         different clusters.
         '''
-        assert nx.is_connected(G), "Graph must be connected."
         assert 2 <= k <= G.number_of_nodes(), "Number of clusters must be in the range [2, |V|], where |V| is the number of nodes of G."
 
         comp = nx.algorithms.community.girvan_newman(G)
-        clusters = itertools.islice(comp, k-2, k-1)
+        num_conn_comp = nx.number_connected_components(G)
+        clusters = itertools.islice(comp, k-num_conn_comp-1, k-num_conn_comp)
 
         return next(clusters)
 

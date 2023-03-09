@@ -14,7 +14,7 @@ from graph import GraphMethods
 
 class PlotMethods():
 
-    def __init__(self):
+    def __init__(self, figures_folder='figures'):
         '''
         The 'PlotMethods' class contains methods for creating plots, figures,
         and animations and saving them locally.
@@ -22,6 +22,10 @@ class PlotMethods():
         self.cm = ClusteringMethods()
         self.dl = DataLoader()
         self.gm = GraphMethods()
+
+        self.figures_folder = figures_folder
+        self.radius = 6_371.009 #km
+        self.world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
 
     @staticmethod
     def switch_coords(pos_dictionary):
@@ -32,20 +36,6 @@ class PlotMethods():
         return {node: (l2,l1) for node, (l1,l2) in pos_dictionary.items()}
 
     @staticmethod
-    def coords_to_cartesian(coords, radius=None):
-        '''
-        Converts a list of (lat,lon) coordinates into (x,y,z) coordinates on a
-        3D sphere with given radius.
-        '''
-        if radius is None:
-            radius = 6_371 #km
-        coords = [(np.deg2rad(lat), np.deg2rad(lon)) for (lat,lon) in coords]
-        x = [radius*np.cos(lat)*np.cos(lon) for (lat,lon) in coords]
-        y = [radius*np.cos(lat)*np.sin(lon) for (lat,lon) in coords]
-        z = [radius*np.sin(lat)             for (lat,lon) in coords]
-        return (x, y, z)
-
-    @staticmethod
     def coords_to_stereographic_projection(coords):
         '''
         Converts (lat,lon) coordinates into (x,y) coordinates on a stereographic
@@ -54,124 +44,177 @@ class PlotMethods():
         '''
         lat = coords[0]
         lon = coords[1]
+
         #polar coordinates
         r = 90-lat
         θ = np.deg2rad(lon)
+        
         #cartesian coordinates on SP
         x = r*np.cos(θ)
         y = r*np.sin(θ)
-        return (x,y)
 
-    def save_clustering_fig(self, G, colormap, path, filename, title, figsize):
+        return (x,y)
+    
+    @staticmethod
+    def _animate_frames(path, filename, keep_frames=False):
+        '''
+        Loads a set of frames, turns them into an animated gif file, and saves
+        the gif.
+        '''
+        frames = []
+        for file in os.listdir(path):
+            if (f'{filename}_' in str(file)):
+                frames.append(Image.open(os.path.join(path,file)))
+        imageio.mimsave(f'{path}\\{filename}.gif', frames)
+
+        if keep_frames:
+            frames_dir = f'{path}\\{filename}_frames'
+            if not os.path.exists(frames_dir):
+                os.makedirs(frames_dir)
+            for file in os.listdir(path):
+                if file.endswith(".png"):
+                    os.rename(os.path.join(path,file), os.path.join(frames_dir,file))
+
+        if not keep_frames:
+            for file in os.listdir(path):
+                if file.endswith(".png"):
+                    os.remove(os.path.join(path,file))
+
+    def coords_to_cartesian(self, coords, radius=None):
+        '''
+        Converts a list of (lat,lon) coordinates into (x,y,z) coordinates on a
+        3D sphere with given radius.
+        '''
+        if radius is None:
+            radius = self.radius
+        coords = [(np.deg2rad(lat), np.deg2rad(lon)) for (lat,lon) in coords]
+        x = [radius*np.cos(lat)*np.cos(lon) for (lat,lon) in coords]
+        y = [radius*np.cos(lat)*np.sin(lon) for (lat,lon) in coords]
+        z = [radius*np.sin(lat)             for (lat,lon) in coords]
+
+        return (x, y, z)
+
+    def save_clustering_fig(self, G, colormap, figsize, path, file_name='clustering_map', title=None):
         '''
         Given a graph G of countries, and a colormap describing a clustering of
         the countries, generates and saves a worldmap showing countries in their
         assigned colors.
         '''
-        world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
         country_name = self.dl.convert_alpha2_to_name()
-        ax = world.plot(color='lightgrey', figsize=figsize)
+        ax = self.world.plot(color='lightgrey', figsize=figsize)
         plt.tight_layout()
         for node in G.nodes:
-            world[world.name == country_name[node]].plot(color=colormap[node], ax=ax)
-        world[world.name == 'Somaliland'].plot(color=colormap['SO'], ax=ax)
-        world[world.name == 'N. Cyprus'].plot(color=colormap['CY'], ax=ax)
+            if (country_name[node] in list(self.world.name)):
+                self.world[self.world.name == country_name[node]].plot(color=colormap[node], ax=ax)
+        self.world[self.world.name == 'Somaliland'].plot(color=colormap['SO'], ax=ax)
+        self.world[self.world.name == 'N. Cyprus'].plot(color=colormap['CY'], ax=ax)
         ax.set_title(title)
+
         if not os.path.exists(path):
             os.makedirs(path)
-        plt.savefig(f'{path}\\{filename}')
+        plt.savefig(f'{path}\\{file_name}')
         plt.close()
 
-    def cluster_world(self, maxK, figsize):
+    def cluster_world(self, maxK, figsize, type='BC'):
         '''
         Generates and saves plots of different clustering methods applied
         to the bordering countries graph with various amounts of clusters.
         For methods of clustering where the number of clusters k can be specified,
         generates all clusterings for k in the interval [2, maxK].
+        The type of clustering map can be:
+            - "BC": includes only the biggest component of the Graph;
+            - "NS": includes all nodes except singletons (islands) in the Graph.
         '''
+        assert type in ['BC', 'NS'], 'Type of clustering map must be "BC" or "NS".'
         cb = self.dl.load_countryborders()
         G = self.gm.countryborders_to_graph(cb)
-        G = self.gm.biggest_component(G)
+        if (type == 'BC'):
+            G = self.gm.biggest_component(G)
+        if (type == 'NS'):
+            G = self.gm.delete_singletons(G)
+        minK = nx.number_connected_components(G)+1
+        assert maxK >= minK, f'maxK must be at least {minK} (connected components of G).'
 
-        clusters_HCS, k_HCS = self.cm.highly_connected_subgraphs(G)
-        colormap_HCS = self.cm.generate_coloring(G, clusters_HCS)
-        self.save_clustering_fig(G, colormap_HCS,
-                                    path='figures\\cluster_world\\HCS',
-                                    filename=f'clustering_{k_HCS}',
-                                    title=f'Highly Connected Subgraphs\n{k_HCS} clusters',
-                                    figsize=figsize)
-
-        for k in range(2,maxK+1):
+        for k in range(minK,maxK+1):
             clusters_GM = self.cm.girvan_newman(G, k)
             colormap_GM = self.cm.generate_coloring(G, clusters_GM)
             self.save_clustering_fig(G, colormap_GM,
-                                        path='figures\\cluster_world\\GM',
-                                        filename=f'clustering_{k}',
-                                        title=f'Girvan Newman\n{k} clusters',
-                                        figsize=figsize)
+                                        figsize=figsize,
+                                        path=f'{self.figures_folder}\\cluster_world\\GM',
+                                        file_name=f'clustering_{k}',
+                                        title=f'Girvan Newman\n{k} clusters')
 
             clusters_SP_un = self.cm.spectral(G, k, version='unnormalized')
             colormap_SP_un = self.cm.generate_coloring(G, clusters_SP_un)
             self.save_clustering_fig(G, colormap_SP_un,
-                                        path='figures\\cluster_world\\SP_un',
-                                        filename=f'clustering_{k}',
-                                        title=f'Unnormalized spectral clustering\n{k} clusters',
-                                        figsize=figsize)
+                                        figsize=figsize,
+                                        path=f'{self.figures_folder}\\cluster_world\\SP_un',
+                                        file_name=f'clustering_{k}',
+                                        title=f'Unnormalized spectral clustering\n{k} clusters')
 
             clusters_SP_SM = self.cm.spectral(G, k, version='normalized-SM')
             colormap_SP_SM = self.cm.generate_coloring(G, clusters_SP_SM)
             self.save_clustering_fig(G, colormap_SP_SM,
-                                        path='figures\\cluster_world\\SP_SM',
-                                        filename=f'clustering_{k}',
-                                        title=f'Symmetrically normalized spectral clustering\n{k} clusters',
-                                        figsize=figsize)
+                                        figsize=figsize,
+                                        path=f'{self.figures_folder}\\cluster_world\\SP_SM',
+                                        file_name=f'clustering_{k}',
+                                        title=f'Symmetrically normalized spectral clustering\n{k} clusters')
 
             clusters_SP_NJW = self.cm.spectral(G, k, version='normalized-NJW')
             colormap_SP_NJW = self.cm.generate_coloring(G, clusters_SP_NJW)
             self.save_clustering_fig(G, colormap_SP_NJW,
-                                        path='figures\\cluster_world\\SP_NJW',
-                                        filename=f'clustering_{k}',
-                                        title=f'Left normalized spectral clustering\n{k} clusters',
-                                        figsize=figsize)
+                                        figsize=figsize,
+                                        path=f'{self.figures_folder}\\cluster_world\\SP_NJW',
+                                        file_name=f'clustering_{k}',
+                                        title=f'Left normalized spectral clustering\n{k} clusters')
 
-    #TODO: Add weighted versions of HCS and Girvan-Newman clustering
-    def cluster_world_dist(self, maxK, figsize):
+    def cluster_world_dist(self, maxK, figsize, type='BC'):
         '''
         Generates and saves plots of different clustering methods applied
         to the bordering countries graph (weighted with distances between country
         centroids) with various amounts of clusters. For methods of clustering
         where the number of clusters k can be specified, generates all clusterings
         for k in the interval [2, maxK].
+        The type of clustering map can be:
+            - "BC": includes only the biggest component of the Graph;
+            - "NS": includes all nodes except singletons (islands) in the Graph.
         '''
+        assert type in ['BC', 'NS'], 'Type of clustering map must be "BC" or "NS".'
         cb = self.dl.load_countryborders()
-        centroids = self.dl.load_countrycentroids()
-        G = self.gm.countryborders_to_weightedgraph(cb, centroids)
-        G = self.gm.biggest_component(G)
+        G = self.gm.countryborders_to_graph(cb)
+        if (type == 'BC'):
+            G = self.gm.biggest_component(G)
+        if (type == 'NS'):
+            G = self.gm.delete_singletons(G)
+        minK = nx.number_connected_components(G)+1
+        assert maxK >= minK, f'maxK must be at least {minK} (connected components of G).'
 
         for k in range(2,maxK+1):
+            #TODO: Add weighted version of GN-clustering.
+
             clusters_SP_un = self.cm.spectral(G, k, version='unnormalized')
             colormap_SP_un = self.cm.generate_coloring(G, clusters_SP_un)
             self.save_clustering_fig(G, colormap_SP_un,
-                                        path='figures\\cluster_world_dist\\SP_un',
-                                        filename=f'clustering_{k}',
-                                        title=f'Unnormalized spectral clustering\n{k} clusters',
-                                        figsize=figsize)
+                                        figsize=figsize,
+                                        path=f'{self.figures_folder}\\cluster_world_dist\\SP_un',
+                                        file_name=f'clustering_{k}',
+                                        title=f'Unnormalized spectral clustering\n{k} clusters')
 
             clusters_SP_SM = self.cm.spectral(G, k, version='normalized-SM')
             colormap_SP_SM = self.cm.generate_coloring(G, clusters_SP_SM)
             self.save_clustering_fig(G, colormap_SP_SM,
-                                        path='figures\\cluster_world_dist\\SP_SM',
-                                        filename=f'clustering_{k}',
-                                        title=f'Symmetrically normalized spectral clustering\n{k} clusters',
-                                        figsize=figsize)
+                                        figsize=figsize,                                     
+                                        path=f'{self.figures_folder}\\cluster_world_dist\\SP_SM',
+                                        file_name=f'clustering_{k}',
+                                        title=f'Symmetrically normalized spectral clustering\n{k} clusters')
 
             clusters_SP_NJW = self.cm.spectral(G, k, version='normalized-NJW')
             colormap_SP_NJW = self.cm.generate_coloring(G, clusters_SP_NJW)
             self.save_clustering_fig(G, colormap_SP_NJW,
-                                        path='figures\\cluster_world_dist\\SP_NJW',
-                                        filename=f'clustering_{k}',
-                                        title=f'Left normalized spectral clustering\n{k} clusters',
-                                        figsize=figsize)
+                                        figsize=figsize,                                     
+                                        path=f'{self.figures_folder}\\cluster_world_dist\\SP_NJW',
+                                        file_name=f'clustering_{k}',
+                                        title=f'Left normalized spectral clustering\n{k} clusters')
 
     def road_network(self, country, figsize, version='all'):
         '''
@@ -183,7 +226,7 @@ class PlotMethods():
             - all: saves all three of the above options.
         '''
         roads = self.dl.load_roads(country=country, continent=None)
-        path = 'figures\\road_network'
+        path = f'{self.figures_folder}\\road_network'
         if not os.path.exists(path):
             os.makedirs(path)
 
@@ -218,15 +261,18 @@ class PlotMethods():
             plt.savefig(f'{path}\\{country}_weighted')
             plt.close()
 
-    def plot2D_worldgraph(self, G, figsize, filename='2Dgraph', show=False):
+    def plot2D_worldgraph(self, G, figsize, file_name='2Dgraph', show=False, show_world=True):
         '''
         Generates and saves a 2D embedding of Graph G onto a (lat, lon)-plot.
         '''
-        path = 'figures\\plot2D_graph'
+        path = f'{self.figures_folder}\\plots'
         plt.figure(figsize=figsize)
-        ax = plt.axes()
+        if show_world:
+            ax = self.world.plot(color='lightgrey', figsize=figsize)
+        if not show_world:
+            ax = plt.axes()
         pos = self.switch_coords(nx.get_node_attributes(G, 'pos'))
-        nx.draw(G, pos=pos, node_color='black', edge_color='lightgrey', node_size=3, ax=ax)
+        nx.draw(G, pos=pos, node_color='black', edge_color='darkgrey', node_size=3, ax=ax)
         ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
         plt.axis('on')
         plt.xlabel('Longitude')
@@ -234,17 +280,17 @@ class PlotMethods():
         if not os.path.exists(path):
             os.makedirs(path)
         plt.tight_layout()
-        plt.savefig(f'{path}\\{filename}')
+        plt.savefig(f'{path}\\{file_name}')
         if show:
             plt.show()
         plt.close()
 
-    def plotSP_worldgraph(self, G, figsize, filename='SPgraph', show=False):
+    def plotSP_worldgraph(self, G, figsize, file_name='SPgraph', show=False):
         '''
         Generates and saves a 2D embedding of Graph G as a stereographic
         projection of the globe onto a plane from the north pole.
         '''
-        path = 'figures\\plot2D_graph'
+        path = f'{self.figures_folder}\\plots'
         plt.figure(figsize=figsize)
         ax = plt.axes()
         ax.axhline(y=0, color='lightgrey', lw=1)
@@ -265,69 +311,45 @@ class PlotMethods():
         if not os.path.exists(path):
             os.makedirs(path)
         plt.tight_layout()
-        plt.savefig(f'{path}\\{filename}')
+        plt.savefig(f'{path}\\{file_name}')
         if show:
             plt.show()
         plt.close()
 
-    def plot3D_worldgraph(self, G, figsize, filename='3Dgraph', n_frames=72,
-                                animate=True, radius=None, show=False, keep_frames=False,
-                                title=None, figtext=None):
+    def plot3D_worldgraph(self, G, figsize, file_name='3Dgraph', n_frames=72,
+                                radius=None, keep_frames=False):
         '''
         Generates and saves a 3D embedding of Graph G with given (lat, lon)
         coordinates for nodes on a 3D sphere of given radius.
         '''
         assert 1 <= n_frames <= 1000, 'The number of frames must be in the interval [1, 1000].'
         if radius is None:
-            radius = 6_371 #km
-        path = 'figures\\plot3D_graph'
+            radius = self.radius
+        path = f'{self.figures_folder}\\plots'
         plt.figure(figsize=figsize)
         ax = plt.axes(projection='3d')
 
         pos = nx.get_node_attributes(G, 'pos')
         x, y, z = self.coords_to_cartesian(list(pos.values()), radius)
         ax.scatter3D(x, y, z, s=3, color='black')
+        ax.set_xlim3d(-radius, radius)
+        ax.set_ylim3d(-radius, radius)
+        ax.set_zlim3d(-radius, radius)
+        ax.axis('equal')
+        ax.set_axis_off()
+
         for edge in G.edges:
             n0 = edge[0]
             n1 = edge[1]
             x0, y0, z0 = self.coords_to_cartesian([pos[n0]], radius)
             x1, y1, z1 = self.coords_to_cartesian([pos[n1]], radius)
             ax.plot([x0, x1], [y0, y1], [z0,z1], color='lightgrey')
-        ax.set_xlim3d(-radius, radius)
-        ax.set_ylim3d(-radius, radius)
-        ax.set_zlim3d(-radius, radius)
-        ax.axis('equal')
-        ax.set_axis_off()
+        
         if not os.path.exists(path):
             os.makedirs(path)
         for i in range(n_frames):
             ax.view_init(elev=10, azim=i*360/n_frames)
-            plt.savefig(f'{path}\\{filename}_{i:03}.png', bbox_inches='tight', pad_inches=-2.5)
-        if show:
-            plt.show()
+            plt.savefig(f'{path}\\{file_name}_{i:03}.png', bbox_inches='tight', pad_inches=-2.5)
         plt.close()
-        if animate:
-            self._animate_frames(path=path, filename=filename, keep_frames=keep_frames)
 
-    def _animate_frames(self, path, filename, keep_frames=False):
-        '''
-        Loads a set of frames, turns them into an animated gif file, and saves
-        the gif.
-        '''
-        frames = []
-        for file in os.listdir(path):
-            if (f'{filename}_' in str(file)):
-                frames.append(Image.open(os.path.join(path,file)))
-        imageio.mimsave(f'{path}\\{filename}.gif', frames)
-        if keep_frames:
-            frames_dir = f'{path}\\{filename}_frames'
-            if not os.path.exists(frames_dir):
-                os.makedirs(frames_dir)
-            for file in os.listdir(path):
-                if file.endswith(".png"):
-                    os.rename(os.path.join(path,file), os.path.join(frames_dir,file))
-        if not keep_frames:
-            for file in os.listdir(path):
-                if file.endswith(".png"):
-                    os.remove(os.path.join(path,file))
-        
+        self._animate_frames(path=path, filename=file_name, keep_frames=keep_frames)

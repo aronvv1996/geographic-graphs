@@ -1,8 +1,8 @@
+import geopandas as gpd
+import geopy.distance
 import itertools
 import networkx as nx
 import numpy as np
-import geopy.distance
-import scipy as sc
 
 
 class RandomGraphs():
@@ -12,20 +12,23 @@ class RandomGraphs():
         The class 'RandomGraphs' contains methods that produce random graphs
         according to various models.
         '''
-
+        self.radius = 6_371.009 #km
+        self.world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
+    
     @staticmethod
-    def compute_geodesic_distances(coords):
+    def compute_spherical_distances(coords):
         '''
-        Given a list of (lat, lon) coordinates, computes the distances in
-        kilometers between all pairs of nodes and returns a dictionary.
+        Given a list of (lat, lon) coordinates, computes the great-circle distances
+        in kilometers between all pairs of nodes and returns a dictionary.
         '''
         dictionary = {}
         for c in coords:
             dictionary[(c, c)] = 0
         for pair in itertools.combinations(coords, 2):
-            dist = geopy.distance.geodesic(pair[0], pair[1]).km
+            dist = geopy.distance.great_circle(pair[0], pair[1]).km
             dictionary[(pair[0], pair[1])] = dist
             dictionary[(pair[1], pair[0])] = dist
+        
         return dictionary
 
     @staticmethod
@@ -35,11 +38,12 @@ class RandomGraphs():
         3D sphere with given radius.
         '''
         if radius is None:
-            radius = 6_371 #km
+            radius = self.radius
         coords = [(np.deg2rad(lat), np.deg2rad(lon)) for (lat,lon) in coords]
         x = [radius*np.cos(lat)*np.cos(lon) for (lat,lon) in coords]
         y = [radius*np.cos(lat)*np.sin(lon) for (lat,lon) in coords]
         z = [radius*np.sin(lat)             for (lat,lon) in coords]
+
         return (x, y, z)
 
     def _uniform_random_points_sphere(self, n, pole_angle=90):
@@ -68,13 +72,22 @@ class RandomGraphs():
         '''
         x_samples = np.random.uniform(x0, x1, size=n)
         y_samples = np.random.uniform(y0, y1, size=n)
+
         return list(zip(x_samples, y_samples))
+    
+    def _uniform_random_points_world(self, n):
+        '''
+        Returns the (lat,lon)-coordinates of n randomly uniformly distributed
+        points on the worldwide landmass.
+        '''
+        #TODO: Add this.
 
     def erdos_renyi(self, n, p):
         '''
         Returns a random Erdős-Rényi graph with n nodes and probability p.
         '''
         G = nx.erdos_renyi_graph(n, p)
+
         return G
 
     def random_geometric(self, n, r):
@@ -84,9 +97,10 @@ class RandomGraphs():
         euclidean distance r.
         '''
         G = nx.random_geometric_graph(n, r)
+
         return G
 
-    def ε_neighborhood(self, n, ε, pole_angle=90, pos=None):
+    def ε_neighborhood(self, n, ε, pole_angle=90, pos=None, distances=None):
         '''
         Returns the ε-neighborhood similarity graph constructed from a set
         of randomly distributed nodes on the globe. Every node is connected to
@@ -98,15 +112,17 @@ class RandomGraphs():
             nodes = self._uniform_random_points_sphere(n, pole_angle)
         if pos is not None:
             nodes = pos
+        if distances is None:            
+            distances = self.compute_spherical_distances(nodes)
 
-        distances = self.compute_geodesic_distances(nodes)
         edges = [(x,y) for x in nodes for y in nodes if 0 < distances[(x,y)] < ε]
         for node in nodes:
             G.add_node(node, pos=node)
         G.add_edges_from(set(edges))
+
         return G
 
-    def k_nearest_neighbors(self, n, k, pole_angle=90, pos=None):
+    def k_nearest_neighbors(self, n, k, pole_angle=90, max_edgelength=None, pos=None, distances=None):
         '''
         Returns the K-nearest-neighbors similarity graph constructed from a set
         of randomly distributed nodes on the globe. Every node is connected to
@@ -119,18 +135,22 @@ class RandomGraphs():
             nodes = self._uniform_random_points_sphere(n, pole_angle)
         if pos is not None:
             nodes = pos
+        if distances is None:
+            distances = self.compute_spherical_distances(nodes)
 
-        distances = self.compute_geodesic_distances(nodes)
         edges = []
         for node in nodes:
-            dist = {k: v for k, v in distances.items() if k[0]==node}
-            k_smallest_dist = dict(sorted(dist.items(), key = lambda x: x[1])[1:k+1])
+            dist = {k: v for k, v in distances.items() if k[0] == node if v > 0}
+            if max_edgelength is not None:
+                dist = {k: v for k, v in dist.items() if v <= max_edgelength}
+            k_smallest_dist = dict(sorted(dist.items(), key = lambda x: x[1])[0:k])
             edges += k_smallest_dist.keys()
             G.add_node(node, pos=node)
         G.add_edges_from(set(edges))
+
         return G
 
-    def mutual_k_nearest_neighbors(self, n, k, pole_angle=90, pos=None):
+    def mutual_k_nearest_neighbors(self, n, k, pole_angle=90, pos=None, distances=None):
         '''
         Returns the mutual-K-nearest-neighbors similarity graph constructed from
         a set of randomly distributed nodes on the globe. A pair of nodes is
@@ -143,19 +163,21 @@ class RandomGraphs():
             nodes = self._uniform_random_points_sphere(n, pole_angle)
         if pos is not None:
             nodes = pos
-
-        distances = self.compute_geodesic_distances(nodes)
+        if distances is None:
+            distances = self.compute_spherical_distances(nodes)
+        
         edges = []
         for node in nodes:
-            dist = {k: v for k, v in distances.items() if k[0]==node}
-            k_smallest_dist = dict(sorted(dist.items(), key = lambda x: x[1])[1:k+1])
+            dist = {k: v for k, v in distances.items() if k[0] == node if v > 0}
+            k_smallest_dist = dict(sorted(dist.items(), key = lambda x: x[1])[0:k])
             edges += k_smallest_dist.keys()
             G.add_node(node, pos=node)
         edges = [(x,y) for (x,y) in edges if (y,x) in edges]
         G.add_edges_from(set(edges))
+
         return G
 
-    def relative_neighborhood(self, n, pole_angle=90, pos=None):
+    def relative_neighborhood(self, n, λ=1, pole_angle=90, pos=None, distances=None):
         '''
         Returns the Random Neighborhood Graph constructed from a set of randomly
         distributed nodes on the globe. A pair of nodes is connected if they are
@@ -167,23 +189,25 @@ class RandomGraphs():
             nodes = self._uniform_random_points_sphere(n, pole_angle)
         if pos is not None:
             nodes = pos
-
-        distances = self.compute_geodesic_distances(nodes)
+        if distances is None:
+            distances = self.compute_spherical_distances(nodes)
+        
         edges = []
         for i in nodes:
             for j in nodes:
                 if (i==j):
                     continue
                 d_max = [max(distances[(k,i)], distances[(k,j)]) for k in nodes if k!=i and k!=j]
-                if distances[(i,j)] <= min(d_max):
+                if distances[(i,j)] <= λ*min(d_max):
                     edges.append((i,j))
-
+        
         for node in nodes:
             G.add_node(node, pos=node)
         G.add_edges_from(set(edges))
+
         return G
 
-    def minimum_spanning_tree(self, n, pole_angle=90, pos=None):
+    def minimum_spanning_tree(self, n, pole_angle=90, pos=None, distances=None):
         '''
         Returns the Minimum Spanning Tree constructed from a set of randomly
         distributed nodes on the globe. Nodes are connected into one connected
@@ -195,10 +219,11 @@ class RandomGraphs():
             nodes = self._uniform_random_points_sphere(n, pole_angle)
         if pos is not None:
             nodes = pos
+        if distances is None:
+            distances = self.compute_spherical_distances(nodes)
 
-        distances = self.compute_geodesic_distances(nodes)
         edges = [(i, j, distances[(i,j)]) for i in nodes for j in nodes]
-        
+
         for node in nodes:
             G.add_node(node, pos=node)
         G.add_weighted_edges_from(edges)
@@ -206,8 +231,8 @@ class RandomGraphs():
 
         return MST
 
-    #TODO
-    def delaunay_triangulation(self, n, pole_angle=90, pos=None):
+    #TODO: Fix.
+    def delaunay_triangulation(self, n, pole_angle=90, pos=None, distances=None):
         '''
         Returns the Delaunay Triangulation constructed from a set of randomly
         distributed nodes on the globe. A pair of nodes is connected if their
@@ -220,8 +245,9 @@ class RandomGraphs():
         if pos is not None:
             nodes = pos
         assert len(nodes) >= 4, 'Number of nodes must be at least 4.'
-            
-        distances = self.compute_geodesic_distances(nodes)
+        if distances is None:
+            distances = self.compute_spherical_distances(nodes)    
+
         #Initial triangle
         for n in nodes[:4]:
             G.add_node(n, pos=n)

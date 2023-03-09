@@ -1,16 +1,13 @@
 import csv
 import geopandas as gpd
-import json
-import networkx as nx
 
 
 class DataLoader():
 
     def __init__(self, data_folder='data'):
         '''
-        The 'DataLoader' class contains methods aimed at loading various kinds
-        of databases (road network, worldwide cities coordinates, country
-        network).
+        The 'DataLoader' class contains methods for loading various kinds of
+        databases (road network, city network, country network, ...).
         '''
         self.world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
         self.data_folder = data_folder
@@ -22,7 +19,7 @@ class DataLoader():
 
     def load_roads(self, continent=None, country=None):
         '''
-        Loads the worldwide road GeoDataBase network. It is possible to load 
+        Loads the worldwide GeoDataBase road network. It is possible to load 
         the network of a single country or continent of choice.
         '''
         gdb_roads = f'{self.data_folder}\\{self.roads_file}'
@@ -44,8 +41,8 @@ class DataLoader():
         csv_cities = open(f'{self.data_folder}\\{self.cities_file}', encoding='utf8')
         DR = list(csv.DictReader(csv_cities))
         lat = [float(x['lat']) for x in DR]
-        lng = [float(x['lng']) for x in DR]
-        gdf_cities = gpd.GeoDataFrame(DR, geometry=gpd.points_from_xy(lng, lat), crs='EPSG:4326')
+        lon = [float(x['lng']) for x in DR]
+        gdf_cities = gpd.GeoDataFrame(DR, geometry=gpd.points_from_xy(lon, lat), crs='EPSG:4326')
 
         if (country is not None):
             return gpd.tools.sjoin(gdf_cities, self.world[self.world.name == country])
@@ -62,7 +59,7 @@ class DataLoader():
         '''
         csv_borders = open(f'{self.data_folder}\\{self.borders_file}')
         DR = list(csv.DictReader(csv_borders))
-        countries = set([x['country_code'] for x in DR if x['country_border_code'] != ''])
+        countries = set([x['country_code'] for x in DR])
         borders = [(x['country_code'],x['country_border_code']) for x in DR if x['country_border_code'] != '']
 
         dictionary = {}
@@ -116,8 +113,8 @@ class DataLoader():
         DR = list(csv.DictReader(csv_centroids))
         countries = [x['ISO'] for x in DR]
         centroids_lat = [float(x['latitude']) for x in DR]
-        centroids_lng = [float(x['longitude']) for x in DR]
-        centroids = list(zip(centroids_lat, centroids_lng))
+        centroids_lon = [float(x['longitude']) for x in DR]
+        centroids = list(zip(centroids_lat, centroids_lon))
         dictionary = dict(zip(countries, centroids))
 
         dictionary['MA'] = (31.791702, -7.09262) #morocco
@@ -127,6 +124,7 @@ class DataLoader():
         dictionary['XK'] = (42.602636, 20.902977) #kosovo
         dictionary['RS'] = (44.016521, 21.005859) #serbia
         dictionary['TW'] = (23.69781, 120.960515) #taiwan
+        dictionary['AX'] = (60.1785, 19.9156) #aland islands
 
         return dictionary
 
