@@ -4,6 +4,9 @@ import itertools
 import networkx as nx
 import numpy as np
 
+from scipy.spatial import Delaunay
+from shapely.geometry import Point, MultiPolygon
+
 
 class RandomGraphs():
 
@@ -14,6 +17,17 @@ class RandomGraphs():
         '''
         self.radius = 6_371.009 #km
         self.world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
+
+    def compute_midpoint(self, coords_1, coords_2):
+        '''
+        Given two sets of (lat, lon) coordinates, computes the midpoint in
+        (lat, lon) coordinates.
+        '''
+        assert coords_1 + coords_2 != [0,0], 'Midpoint of antipodal points is undefined.'
+        p = [(x+y)/2 for (x,y) in self.coords_to_cartesian([coords_1, coords_2])]
+        midpoint = [x*self.radius/np.linalg.norm(p) for x in p]
+
+        return self.cartesian_to_coords(midpoint)
     
     @staticmethod
     def compute_spherical_distances(coords):
@@ -31,8 +45,7 @@ class RandomGraphs():
         
         return dictionary
 
-    @staticmethod
-    def coords_to_cartesian(coords, radius=None):
+    def coords_to_cartesian(self, coords, radius=None):
         '''
         Converts a list of (lat,lon) coordinates into (x,y,z) coordinates on a
         3D sphere with given radius.
@@ -45,6 +58,25 @@ class RandomGraphs():
         z = [radius*np.sin(lat)             for (lat,lon) in coords]
 
         return (x, y, z)
+    
+    def cartesian_to_coords(self, cartesian, radius=None):
+        '''
+        Converts a (x,y,z) coordinate on a 3D sphere with given radius into a
+        (lat, lon) coordinate.
+        '''
+        if radius is None:
+            radius = self.radius
+        x, y, z = cartesian
+        lat = np.arcsin(z/radius)
+        if (z != radius):
+            i = max(min(x/(radius*np.sqrt(1-(z/radius)**2)),1),-1)
+            lon = np.arccos(i)*np.sign(y)
+        else:
+            lon = 0 #north/south pole -> lon undefined
+
+        lat = np.rad2deg(lat)
+        lon = np.rad2deg(lon)
+        return (lat, lon)
 
     def _uniform_random_points_sphere(self, n, pole_angle=90):
         '''
@@ -75,41 +107,67 @@ class RandomGraphs():
 
         return list(zip(x_samples, y_samples))
     
-    def _uniform_random_points_world(self, n):
+    def _uniform_random_points_world(self, n, pole_angle=90):
         '''
         Returns the (lat,lon)-coordinates of n randomly uniformly distributed
         points on the worldwide landmass.
         '''
-        #TODO: Add this.
+        world = self.world.explode(index_parts=True)
+        polygon_list = list(world.geometry)
+        final_node_list = []
 
-    def erdos_renyi(self, n, p):
+        while (len(final_node_list) < n):
+            rem_points = n - len(final_node_list)
+            node_list = self._uniform_random_points_sphere(n=int(3.5*rem_points), pole_angle=pole_angle)
+            for node in node_list:
+                point = Point(node[1], node[0])
+                for polygon in polygon_list:
+                    if (point.within(polygon)):
+                        final_node_list.append(node)
+                        break
+        
+        return final_node_list
+    
+    def check_edge_on_land(self, edge, div):
         '''
-        Returns a random Erdős-Rényi graph with n nodes and probability p.
+        Given an edge of the graph, subdivides the edge into div+1 evenly
+        spaces points andchecks whether they all lie on the world landmass.
+        If so, returns true.
         '''
-        G = nx.erdos_renyi_graph(n, p)
+        x, y, z = self.coords_to_cartesian(edge)
+        Δx = x[1]-x[0]
+        Δy = y[1]-y[0]
+        Δz = z[1]-z[0]
+        p_list = [(x[0] + Δx*i/div, y[0] + Δy*i/div, z[0] + Δz*i/div) for i in range(div+1)]
+        norms = [np.linalg.norm(p) for p in p_list]
+        p_list_norm = [(x*self.radius/norm, y*self.radius/norm, z*self.radius/norm) for ((x,y,z),norm) in zip(p_list,norms)]
+        p_coords = [self.cartesian_to_coords(p) for p in p_list_norm]
 
-        return G
+        world = self.world.explode(index_parts=True)
+        polygon_list = list(world.geometry)
+        for coord in p_coords:
+            success = False
+            point = Point(coord[1], coord[0])
+            for polygon in polygon_list:
+                if (point.within(polygon)):
+                    success = True
+                    break
+            if not success:
+                return False
+        return True
 
-    def random_geometric(self, n, r):
-        '''
-        Returns a random geometric graph. Nodes are placed uniformly at random
-        in a unit square. Every node is connected to all other nodes within the
-        euclidean distance r.
-        '''
-        G = nx.random_geometric_graph(n, r)
-
-        return G
-
-    def ε_neighborhood(self, n, ε, pole_angle=90, pos=None, distances=None):
+    def ε_neighborhood(self, n, ε, pole_angle=90, land_filter=False, pos=None, distances=None):
         '''
         Returns the ε-neighborhood similarity graph constructed from a set
         of randomly distributed nodes on the globe. Every node is connected to
-        all other nodes within a geodesic distance of ε kilometers. The position
-        of nodes can be predefined through 'pos'.
+        all other nodes within a geodesic distance of ε kilometers.
         '''
         G = nx.Graph()
         if pos is None:
-            nodes = self._uniform_random_points_sphere(n, pole_angle)
+            if land_filter:
+                nodes = self._uniform_random_points_world(n, pole_angle)
+            if not land_filter:
+                nodes = self._uniform_random_points_sphere(n, pole_angle)
         if pos is not None:
             nodes = pos
         if distances is None:            
@@ -118,21 +176,29 @@ class RandomGraphs():
         edges = [(x,y) for x in nodes for y in nodes if 0 < distances[(x,y)] < ε]
         for node in nodes:
             G.add_node(node, pos=node)
-        G.add_edges_from(set(edges))
+        edges = set(edges)
+        if land_filter:
+            for edge in edges:
+                if (self.check_edge_on_land(edge, div=10)):
+                    G.add_edge(edge[0], edge[1])
+        if not land_filter:
+            G.add_edges_from(edges)
 
         return G
 
-    def k_nearest_neighbors(self, n, k, pole_angle=90, max_edgelength=None, pos=None, distances=None):
+    def k_nearest_neighbors(self, n, k, pole_angle=90, max_edgelength=None, land_filter=False, pos=None, distances=None):
         '''
         Returns the K-nearest-neighbors similarity graph constructed from a set
         of randomly distributed nodes on the globe. Every node is connected to
-        its k nearest neighbors. The position of nodes can be predefined
-        through 'pos'.
+        its k nearest neighbors.
         '''
         assert 1 <= k <= n-1, 'k must take values in the interval [1, n-1].'
         G = nx.Graph()
         if pos is None:
-            nodes = self._uniform_random_points_sphere(n, pole_angle)
+            if land_filter:
+                nodes = self._uniform_random_points_world(n, pole_angle)
+            if not land_filter:
+                nodes = self._uniform_random_points_sphere(n, pole_angle)
         if pos is not None:
             nodes = pos
         if distances is None:
@@ -146,21 +212,30 @@ class RandomGraphs():
             k_smallest_dist = dict(sorted(dist.items(), key = lambda x: x[1])[0:k])
             edges += k_smallest_dist.keys()
             G.add_node(node, pos=node)
-        G.add_edges_from(set(edges))
+        
+        edges = set(edges)
+        if land_filter:
+            for edge in edges:
+                if (self.check_edge_on_land(edge, div=10)):
+                    G.add_edge(edge[0], edge[1])
+        if not land_filter:
+            G.add_edges_from(edges)
 
         return G
 
-    def mutual_k_nearest_neighbors(self, n, k, pole_angle=90, pos=None, distances=None):
+    def mutual_k_nearest_neighbors(self, n, k, pole_angle=90, land_filter=False, pos=None, distances=None):
         '''
         Returns the mutual-K-nearest-neighbors similarity graph constructed from
         a set of randomly distributed nodes on the globe. A pair of nodes is
         connected if both nodes are in the k nearest neighbors of the other node.
-        The position of nodes can be predefined through 'pos'.
         '''
         assert 1 <= k <= n-1, 'k must take values in the interval [1, n-1].'
         G = nx.Graph()
         if pos is None:
-            nodes = self._uniform_random_points_sphere(n, pole_angle)
+            if land_filter:
+                nodes = self._uniform_random_points_world(n, pole_angle)
+            if not land_filter:
+                nodes = self._uniform_random_points_sphere(n, pole_angle)
         if pos is not None:
             nodes = pos
         if distances is None:
@@ -173,20 +248,28 @@ class RandomGraphs():
             edges += k_smallest_dist.keys()
             G.add_node(node, pos=node)
         edges = [(x,y) for (x,y) in edges if (y,x) in edges]
-        G.add_edges_from(set(edges))
+        edges = set(edges)
+        if land_filter:
+            for edge in edges:
+                if (self.check_edge_on_land(edge, div=10)):
+                    G.add_edge(edge[0], edge[1])
+        if not land_filter:
+            G.add_edges_from(edges)
 
         return G
 
-    def relative_neighborhood(self, n, λ=1, pole_angle=90, pos=None, distances=None):
+    def relative_neighborhood(self, n, λ=1, pole_angle=90, land_filter=False, pos=None, distances=None):
         '''
         Returns the Random Neighborhood Graph constructed from a set of randomly
         distributed nodes on the globe. A pair of nodes is connected if they are
         at least as close to each other as they are to any other node.
-        The position of nodes can be predefined through 'pos'.
         '''
         G = nx.Graph()
         if pos is None:
-            nodes = self._uniform_random_points_sphere(n, pole_angle)
+            if land_filter:
+                nodes = self._uniform_random_points_world(n, pole_angle)
+            if not land_filter:
+                nodes = self._uniform_random_points_sphere(n, pole_angle)
         if pos is not None:
             nodes = pos
         if distances is None:
@@ -203,16 +286,61 @@ class RandomGraphs():
         
         for node in nodes:
             G.add_node(node, pos=node)
-        G.add_edges_from(set(edges))
+        edges = set(edges)
+        if land_filter:
+            for edge in edges:
+                if (self.check_edge_on_land(edge, div=10)):
+                    G.add_edge(edge[0], edge[1])
+        if not land_filter:
+            G.add_edges_from(edges)
 
         return G
+
+    def gabriel(self, n, pole_angle=90, land_filter=False, pos=None, distances=None):
+        '''
+        Returns the Gabriel Graph constructed from a set of randomly
+        distributed nodes on the globe. A pair of nodes is connected if there
+        are no other nodes within the smallest circle passing through
+        both nodes.
+        '''
+        G = nx.Graph()
+        if pos is None:
+            if land_filter:
+                nodes = self._uniform_random_points_world(n, pole_angle)
+            if not land_filter:
+                nodes = self._uniform_random_points_sphere(n, pole_angle)
+        if pos is not None:
+            nodes = pos
+        if distances is None:
+            distances = self.compute_spherical_distances(nodes)
+
+        edges = []
+        for i in nodes:
+            for j in nodes:
+                if (i==j):
+                    continue
+                d = [np.sqrt(distances[(k,i)]**2 + distances[(k,j)]**2) for k in nodes if k!=i and k!=j]
+                if distances[(i,j)] <= min(d):
+                    edges.append((i,j))
+        
+        for node in nodes:
+            G.add_node(node, pos=node)
+        edges = set(edges)
+        if land_filter:
+            for edge in edges:
+                if (self.check_edge_on_land(edge, div=10)):
+                    G.add_edge(edge[0], edge[1])
+        if not land_filter:
+            G.add_edges_from(edges)
+
+        return G       
 
     def minimum_spanning_tree(self, n, pole_angle=90, pos=None, distances=None):
         '''
         Returns the Minimum Spanning Tree constructed from a set of randomly
         distributed nodes on the globe. Nodes are connected into one connected
         component in such a way that the sum of distances of all edges is
-        minimized. The position of nodes can be predefined through 'pos'.
+        minimized.
         '''
         G = nx.Graph()
         if pos is None:
@@ -231,56 +359,74 @@ class RandomGraphs():
 
         return MST
 
-    #TODO: Fix.
-    def delaunay_triangulation(self, n, pole_angle=90, pos=None, distances=None):
+    #TODO: Broken!
+    def delaunay_triangulation(self, n, pole_angle=90, land_filter=False, pos=None, distances=None):
         '''
         Returns the Delaunay Triangulation constructed from a set of randomly
         distributed nodes on the globe. A pair of nodes is connected if their
-        corresponding tiles in the Voronoi diagram share an edge. The position
-        of nodes can be predefined through 'pos'.
+        corresponding tiles in the Voronoi diagram share an edge.
         '''
         G = nx.Graph()
         if pos is None:
-            nodes = self._uniform_random_points_sphere(n, pole_angle)
+            if land_filter:
+                nodes = self._uniform_random_points_world(n, pole_angle)
+            if not land_filter:
+                nodes = self._uniform_random_points_sphere(n, pole_angle)
         if pos is not None:
             nodes = pos
-        assert len(nodes) >= 4, 'Number of nodes must be at least 4.'
         if distances is None:
-            distances = self.compute_spherical_distances(nodes)    
+            distances = self.compute_spherical_distances(nodes)
 
-        #Initial triangle
-        for n in nodes[:4]:
-            G.add_node(n, pos=n)
-        edges = [(x,y) for x in nodes[:4] for y in nodes[:4] if y!=x]
-        n0, n1, n2, n3 = nodes[:4]
-        triangles = [[n0,n1,n2], [n0,n1,n3], [n0,n2,n3], [n1,n2,n3]]
+        virtual_nodes = [(lat,lon-360) for (lat,lon) in nodes]+nodes+[(lat,lon+360) for (lat,lon) in nodes]
+        virtual_triangles = [(virtual_nodes[a], virtual_nodes[b], virtual_nodes[c]) for (a,b,c) in Delaunay(virtual_nodes).simplices]
+        virtual_edges = [((a,b), (b,c), (c,a)) for (a,b,c) in virtual_triangles]
+        virtual_edges = set([i for j in virtual_edges for i in j])
 
-        #Iterative process
-        for n in nodes[4:]:
-            G.add_node(n, pos=n)
-            cavity = []
-            for Δ in triangles:
-                n1, n2, n3 = Δ
-                cartesian_coords = self.coords_to_cartesian([n1,n2,n3,n], radius=1)
-                x1, x2, x3, x = cartesian_coords[0]
-                y1, y2, y3, y = cartesian_coords[1]
-                z1, z2, z3, z = cartesian_coords[2]
+        edges = []
+        for e in virtual_edges:
+            if (-180 < e[0][1] <= 180 and -180 < e[1][1] <= 180):
+                edges.append(e)
+            if (180 < e[0][1] and -180 < e[1][1] <= 180):
+                new_node = min(nodes, key=lambda x:abs(x[1]-e[0][1]+360))
+                edges.append((e[1], new_node))
+            if (-180 < e[0][1] <= 180 and 180 < e[1][1]):
+                new_node = min(nodes, key=lambda x:abs(x[1]-e[1][1]+360))
+                edges.append((e[0], new_node)) 
+            if (-180 < e[0][1] <= 180 and e[1][1] <= -180):
+                new_node = min(nodes, key=lambda x:abs(x[1]-e[0][1]-360))
+                edges.append((e[0], new_node))
+            if (e[0][1] <= -180 and -180 < e[1][1] <= 180):
+                new_node = min(nodes, key=lambda x:abs(x[1]-e[1][1]-360))
+                edges.append((e[1], new_node))
 
-                T = np.array([[1 , 1 , 1 , 1],
-                              [x1, x2, x3, x],
-                              [y1, y2, y3, y],
-                              [z1, z2, z3, z]])
+        for node in nodes:
+            G.add_node(node, pos=node)
+        if land_filter:
+            for edge in edges:
+                if (self.check_edge_on_land(edge, div=10)):
+                    G.add_edge(edge[0], edge[1])
+        if not land_filter:
+            G.add_edges_from(edges)
+        G.remove_edges_from(nx.selfloop_edges(G))
 
-                vol = np.linalg.det(T)
-                if (vol < 0):
-                    cavity += [(n1,n2), (n2,n3), (n1,n3)]
-                    triangles.remove(Δ)
+        return G
+    
+    def beta_skeleton(self, n, β, pole_angle=90, land_filter=False, pos=None, distances=None):
+        '''
+        Returns the Beta Skeleton Graph constructed from a set of randomly
+        distributed nodes on the globe.
+        '''
+        assert 1 <= β <= 2, 'Beta takes values in the interval [1,2].'
+        G = self.gabriel(n=n, pole_angle=pole_angle, land_filter=land_filter, pos=pos, distances=distances)
+        nodes = G.nodes()
 
-            edges = [e for e in cavity if cavity.count(e)==1]
-            triangles += [[n, e0, e1] for (e0,e1) in edges]
-
-        edges = [((n1,n2), (n2,n3), (n1,n3)) for (n1,n2,n3) in triangles]
-        edges = [i for j in edges for i in j]
-        G.add_edges_from(edges)
+        for e in G.edges:
+            i, j = e
+            r = β/2*(geopy.distance.great_circle(i,j).km)
+            c1 = ((1-β/2)*i[0] + β/2*j[0], (1-β/2)*i[1] + β/2*j[1])
+            c2 = ((1-β/2)*j[0] + β/2*i[0], (1-β/2)*j[1] + β/2*i[1])
+            d_max = [max(geopy.distance.great_circle(k,c1).km, geopy.distance.great_circle(k,c2).km) for k in nodes if k!=i and k!=j]
+            if r > min(d_max):
+                G.remove_edge(i,j)
 
         return G

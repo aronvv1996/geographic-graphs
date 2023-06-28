@@ -9,8 +9,6 @@ generate results (text, maps, plots).
 
 ## Organization of the code
 
-'clustering.py' contains methods for clustering graphs.
-
 'data.py' is used to load the datasets.
 
 'graph.py' contains methods to convert loaded data into graphs, and a variety of graph operations.
@@ -30,6 +28,10 @@ The project builds on the following datasets:
 
 Put the files into a folder called 'data' in the repository.
 
+## Images
+
+![alt text](figures/plots/eN_sample_3D.gif)
+
 ## Report
 
-Click [here](https://www.overleaf.com/read/hccdjstbwvgt) for the LaTeX overleaf file of the report.
+Click [here](https://www.overleaf.com/read/xzbmhvwgfgqz) for the LaTeX overleaf file of the report.

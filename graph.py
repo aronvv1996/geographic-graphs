@@ -1,4 +1,6 @@
+from collections import Counter
 import geopy.distance
+from itertools import combinations
 import networkx as nx
 import numpy as np
 import os
@@ -53,47 +55,39 @@ class GraphMethods():
         return G
 
     @staticmethod
-    def countryborders_to_graph(cb):
+    def countryborders_to_graph(cb, centroids=None):
         '''
         Converts the countryborders dictionary into a graph G. G has countries
         as its set of nodes, and each set of bordering countries is connected
-        via an edge in G.
+        via an edge in G. If 'centroids' is not None, returns a weighted graph
+        G, where the weight of each edge is computed as the great-circle
+        distance between the centroids of the incident countries.
         '''
         G = nx.Graph()
         nodes = list(cb.keys())
         edges = [(x,y) for x in nodes for y in cb[x]]
-        G.add_nodes_from(nodes)
-        G.add_edges_from(edges)
 
-        return G
-    
-    @staticmethod
-    def countryborders_to_weightedgraph(cb, centroids):
-        '''
-        Converts the countryborders dictionary into a weighted graph G. G has
-        countries as its set of nodes, and each set of bordering countries is
-        connected via an edge in G. The weight of each edge is computed as the
-        great-circle distance between the centroids of the incident countries.
-        '''
-        G = nx.Graph()
-        nodes = list(cb.keys())
-        edges = [(x,y) for x in nodes for y in cb[x]]
-        weights = []
+        if centroids is None:
+            G.add_nodes_from(nodes)
+            G.add_edges_from(edges)
 
-        for edge in edges:
-            e0 = edge[0]
-            e1 = edge[1]
-            c0 = centroids[e0]
-            c1 = centroids[e1]
-            weights.append(geopy.distance.great_circle(c0, c1).km)
-        weighted_edges = [(e0, e1, w) for ((e0, e1), w) in zip(edges, weights)]
+        if centroids is not None:
+            weights = []
 
-        for node in nodes:
-            lat = centroids[node][0]
-            lon = centroids[node][1]
-            G.add_node(node, pos=(lat, lon))
-        G.add_weighted_edges_from(weighted_edges)
-        
+            for edge in edges:
+                e0 = edge[0]
+                e1 = edge[1]
+                c0 = centroids[e0]
+                c1 = centroids[e1]
+                weights.append(geopy.distance.great_circle(c0, c1).km)
+            weighted_edges = [(e0, e1, w) for ((e0, e1), w) in zip(edges, weights)]
+
+            for node in nodes:
+                lat = centroids[node][0]
+                lon = centroids[node][1]
+                G.add_node(node, pos=(lat, lon))
+            G.add_weighted_edges_from(weighted_edges)
+
         return G
 
     @staticmethod
@@ -127,6 +121,38 @@ class GraphMethods():
             G.add_weighted_edges_from(weighted_edges)
 
         return G
+
+    @staticmethod
+    def tvd(G1, G2):
+        '''
+        Given the two degree distributions as Counter objects, converts
+        them to probability distributions and returns the total variation
+        distance between them. If 'count_singletons' is False, then nodes
+        of degree 0 are not considered.
+        '''
+        assert G1.number_of_nodes() == G2.number_of_nodes(), 'The two graphs must have the same number of nodes.'
+
+        n = G1.number_of_nodes()
+        dd1 = Counter([d for n,d in G1.degree()])
+        dd2 = Counter([d for n,d in G2.degree()])
+        TVD = 0
+        mx = max(max(dd1.keys()),max(dd2.keys()))
+        dd1_c = [0]*(mx+1)
+        dd2_c = [0]*(mx+1)
+        for L in range(mx+1):
+            dd1_c[L] = dd1[L]
+            dd2_c[L] = dd2[L]
+        for L in range(1,mx+2):
+            for subset in combinations(range(mx+1), L):
+                dd1_tot = 0
+                dd2_tot = 0
+                for element in subset:
+                    dd1_tot += dd1[element]/n
+                    dd2_tot += dd2[element]/n
+                temp_TVD = abs(dd1_tot - dd2_tot)
+                if temp_TVD > TVD:
+                    TVD = temp_TVD
+        return TVD
 
     def write_results(self, G, form, save_to_file=True, file_name='results'):
         '''

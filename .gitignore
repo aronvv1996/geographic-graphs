@@ -1,5 +1,7 @@
 # folders
 __pycache__/
 data/
-figures/
-results/
+lib/
+
+figures.ipynb
+temp.py

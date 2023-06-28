@@ -66,9 +66,6 @@ class DataLoader():
         for country in countries:
             dictionary[country] = [y for (x,y) in borders if x == country]
 
-        dictionary['RU'] += ['US']
-        dictionary['US'] += ['RU']
-
         dictionary['JP'] = ['RU']
         dictionary['RU'] += ['JP']
 
@@ -125,6 +122,7 @@ class DataLoader():
         dictionary['RS'] = (44.016521, 21.005859) #serbia
         dictionary['TW'] = (23.69781, 120.960515) #taiwan
         dictionary['AX'] = (60.1785, 19.9156) #aland islands
+        dictionary['ES'] = (40.365008336683836, -3.6516251409956983) #spain (without canaries)
 
         return dictionary
 
