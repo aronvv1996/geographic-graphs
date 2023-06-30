@@ -1,4 +1,4 @@
-# Geographic graphs (working title)
+# Geographic graphs
 
 <p align="center">
   <img src="figures/plots/WG_3D.gif" width="400" height="400">
