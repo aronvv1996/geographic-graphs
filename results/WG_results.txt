@@ -1,0 +1,30 @@
+GENERAL GRAPH STATISTICS:
+Number of nodes: 250
+Number of edges: 332
+Mean vertex degree: 2.656
+STD vertex degree: 2.725
+Minimum vertex degree: 0
+Maximum vertex degree: 17
+Number of singletons: 79
+Number of triangles: 173
+Number of connected components: 83
+Clustering coefficient: 0.315
+Clique number: 4
+
+Mean edge distance: 1006.857 km
+STD edge distance: 885.389 km
+
+
+BIGGEST COMPONENT STATISTICS:
+Number of nodes: 143
+Number of edges: 292
+Mean vertex degree: 4.084
+STD vertex degree: 2.524
+Minimum vertex degree: 1
+Maximum vertex degree: 17
+Number of triangles: 157
+Clustering coefficient: 0.468
+Clique number: 4
+
+Mean edge distance: 965.119 km
+STD edge distance: 877.865 km

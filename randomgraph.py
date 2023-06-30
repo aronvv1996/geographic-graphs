@@ -3,9 +3,8 @@ import geopy.distance
 import itertools
 import networkx as nx
 import numpy as np
-
 from scipy.spatial import Delaunay
-from shapely.geometry import Point, MultiPolygon
+from shapely.geometry import Point
 
 
 class RandomGraphs():
@@ -162,6 +161,8 @@ class RandomGraphs():
         of randomly distributed nodes on the globe. Every node is connected to
         all other nodes within a geodesic distance of ε kilometers.
         '''
+        def __repr__(self):
+            return 'hehe function created by awesome programmer'
         G = nx.Graph()
         if pos is None:
             if land_filter:
@@ -186,7 +187,7 @@ class RandomGraphs():
 
         return G
 
-    def k_nearest_neighbors(self, n, k, pole_angle=90, max_edgelength=None, land_filter=False, pos=None, distances=None):
+    def k_nearest_neighbors(self, n, k, ε, pole_angle=90, land_filter=False, pos=None, distances=None):
         '''
         Returns the K-nearest-neighbors similarity graph constructed from a set
         of randomly distributed nodes on the globe. Every node is connected to
@@ -207,8 +208,8 @@ class RandomGraphs():
         edges = []
         for node in nodes:
             dist = {k: v for k, v in distances.items() if k[0] == node if v > 0}
-            if max_edgelength is not None:
-                dist = {k: v for k, v in dist.items() if v <= max_edgelength}
+            if ε is not None:
+                dist = {k: v for k, v in dist.items() if v <= ε}
             k_smallest_dist = dict(sorted(dist.items(), key = lambda x: x[1])[0:k])
             edges += k_smallest_dist.keys()
             G.add_node(node, pos=node)
@@ -301,7 +302,9 @@ class RandomGraphs():
         Returns the Gabriel Graph constructed from a set of randomly
         distributed nodes on the globe. A pair of nodes is connected if there
         are no other nodes within the smallest circle passing through
-        both nodes.
+        both nodes. For the sake of speed, the definition in terms of distances
+        is applied, which only holds for the plane but is accurate enough
+        on the sphere.
         '''
         G = nx.Graph()
         if pos is None:
@@ -359,7 +362,6 @@ class RandomGraphs():
 
         return MST
 
-    #TODO: Broken!
     def delaunay_triangulation(self, n, pole_angle=90, land_filter=False, pos=None, distances=None):
         '''
         Returns the Delaunay Triangulation constructed from a set of randomly
@@ -372,6 +374,7 @@ class RandomGraphs():
                 nodes = self._uniform_random_points_world(n, pole_angle)
             if not land_filter:
                 nodes = self._uniform_random_points_sphere(n, pole_angle)
+        nodes = [(round(lat,6),round(lon,6)) for (lat,lon) in nodes] # quick fix for floating errors
         if pos is not None:
             nodes = pos
         if distances is None:
@@ -383,21 +386,18 @@ class RandomGraphs():
         virtual_edges = set([i for j in virtual_edges for i in j])
 
         edges = []
-        for e in virtual_edges:
-            if (-180 < e[0][1] <= 180 and -180 < e[1][1] <= 180):
-                edges.append(e)
-            if (180 < e[0][1] and -180 < e[1][1] <= 180):
-                new_node = min(nodes, key=lambda x:abs(x[1]-e[0][1]+360))
-                edges.append((e[1], new_node))
-            if (-180 < e[0][1] <= 180 and 180 < e[1][1]):
-                new_node = min(nodes, key=lambda x:abs(x[1]-e[1][1]+360))
-                edges.append((e[0], new_node)) 
-            if (-180 < e[0][1] <= 180 and e[1][1] <= -180):
-                new_node = min(nodes, key=lambda x:abs(x[1]-e[0][1]-360))
-                edges.append((e[0], new_node))
-            if (e[0][1] <= -180 and -180 < e[1][1] <= 180):
-                new_node = min(nodes, key=lambda x:abs(x[1]-e[1][1]-360))
-                edges.append((e[1], new_node))
+        for edge in virtual_edges:
+            n1 = edge[0]
+            n2 = edge[1]
+            if (n1[1] > n2[1]):
+                n1 = edge[1]
+                n2 = edge[0]
+            if (n1[1] < -180 and n2[1] >= -180):
+                edges.append((n2,(n1[0],round(n1[1]+360,6))))
+            if (n2[1] >= 180 and n1[1] < 180):
+                edges.append((n1,(n2[0],round(n2[1]-360,6))))
+            if (n1[1] >= -180 and n2[1] < 180):
+                edges.append((n1,n2))
 
         for node in nodes:
             G.add_node(node, pos=node)
@@ -414,7 +414,9 @@ class RandomGraphs():
     def beta_skeleton(self, n, β, pole_angle=90, land_filter=False, pos=None, distances=None):
         '''
         Returns the Beta Skeleton Graph constructed from a set of randomly
-        distributed nodes on the globe.
+        distributed nodes on the globe. For the sake of speed, some 
+        simplifications are made, such as when computing the coordinates
+        of points c1 and c2.
         '''
         assert 1 <= β <= 2, 'Beta takes values in the interval [1,2].'
         G = self.gabriel(n=n, pole_angle=pole_angle, land_filter=land_filter, pos=pos, distances=distances)

@@ -1,15 +1,12 @@
 import geopandas as gpd
 import imageio
+from matplotlib.patches import Circle, Polygon
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import os
-
-from matplotlib.patches import Circle, Polygon
 from PIL import Image
-from shapely.geometry import MultiPolygon
 
-from clustering import ClusteringMethods
 from data import DataLoader
 from graph import GraphMethods
 
@@ -21,7 +18,6 @@ class PlotMethods():
         The 'PlotMethods' class contains methods for creating plots, figures,
         and animations and saving them locally.
         '''
-        self.cm = ClusteringMethods()
         self.dl = DataLoader()
         self.gm = GraphMethods()
 
@@ -144,7 +140,7 @@ class PlotMethods():
             plt.savefig(f'{path}\\{country}_weighted')
             plt.close()
 
-    def plot2D_worldgraph(self, G, figsize=(20,15), file_name='2Dgraph', show=False, show_world=False):
+    def plot2D_worldgraph(self, G, figsize=(20,15), file_name='2Dgraph', show=False, show_world=False, fix_wrapping=True):
         '''
         Generates and saves a 2D embedding of Graph G onto a (lat, lon)-plot.
         '''
@@ -154,21 +150,24 @@ class PlotMethods():
         if show_world:
             self.world.plot(color=[0.9, 0.9, 0.9], figsize=figsize, ax=ax)
         Gw = nx.Graph()
-        for node in G.nodes():
-            Gw.add_node(node, pos=node)
-            Gw.add_node((node[0],node[1]+360), pos=(node[0],node[1]+360))
-            Gw.add_node((node[0],node[1]-360), pos=(node[0],node[1]-360))
-        for edge in G.edges():
-            n1 = edge[0]
-            n2 = edge[1]
-            if (n1[1] > n2[1]):
-                n1 = edge[1]
-                n2 = edge[0]
-            if (n2[1]-n1[1] > 180):
-                Gw.add_edge(n2,(n1[0],n1[1]+360))
-                Gw.add_edge(n1,(n2[0],n2[1]-360))
-            if (n2[1]-n1[1] <= 180):
-                Gw.add_edge(n1,n2)
+        if fix_wrapping:
+            for node in G.nodes():
+                Gw.add_node(node, pos=node)
+                Gw.add_node((node[0],node[1]+360), pos=(node[0],node[1]+360))
+                Gw.add_node((node[0],node[1]-360), pos=(node[0],node[1]-360))
+            for edge in G.edges():
+                n1 = edge[0]
+                n2 = edge[1]
+                if (n1[1] > n2[1]):
+                    n1 = edge[1]
+                    n2 = edge[0]
+                if (n2[1]-n1[1] > 180):
+                    Gw.add_edge(n2,(n1[0],n1[1]+360))
+                    Gw.add_edge(n1,(n2[0],n2[1]-360))
+                if (n2[1]-n1[1] <= 180):
+                    Gw.add_edge(n1,n2)
+        if not fix_wrapping:
+            Gw = G.copy()
         pos = self.switch_coords(nx.get_node_attributes(Gw, 'pos'))
         nx.draw(Gw, pos=pos, node_color='black', edge_color='darkgrey', node_size=3, ax=ax)
         ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
@@ -269,3 +268,29 @@ class PlotMethods():
         plt.close()
 
         self._animate_frames(path=path, filename=file_name, keep_frames=keep_frames)
+
+    def plot_degreedist(self, degreedist, WG=None, figsize=(10,6), file_name='DegreeDist', show=False):
+        '''
+        Plots the degree distribution and saves it to the
+        'figures' folder. If 'WG' is specified as the worldgraph, will
+        overlay the degree distribution of G over that one of the WG.
+        '''
+        if WG is not None:
+            WG_degreedist = [d for n,d in WG.degree() if d!=0]
+
+        path = f'{self.figures_folder}\\degreedist'
+        plt.figure(figsize=figsize)
+        ax = plt.axes()
+
+        if WG is not None:
+            plt.hist(WG_degreedist, bins=np.arange(1,19)-0.5, color='k', alpha=0.1)
+            plt.hist(WG_degreedist, bins=np.arange(1,19)-0.5, color='k', histtype='step')
+        plt.bar(list(degreedist.keys()), list(degreedist.values()), color='tab:cyan', alpha=0.7, width=0.8, zorder=3)
+        ax.set_xticks(range(19))
+        plt.grid(axis='y')
+        plt.xlabel('Degree')
+        plt.tight_layout()
+        if not os.path.exists(path):
+            os.makedirs(path)
+        plt.savefig(f'{path}\\{file_name}.png')
+        plt.close()

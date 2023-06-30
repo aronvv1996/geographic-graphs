@@ -1,6 +1,19 @@
 # Geographic graphs (working title)
 
-Note: this README file is still a WIP.
+<p align="center">
+  <img src="figures/plots/WG_3D.gif" width="400" height="400">
+</p>
+
+This repository is an attempt to recreate the map graph of countries worldwide with random graph models. By map graph of countries we mean the graph with nodes corresponding to the centroids of a selection of 250 countries and territories (See Section Report for more info), where a pair of nodes is connected is they share a border. The random graphs are created by sampling uniformly distributed nodes on a sphere, and connecting them according to rules defined by various random graph models. The available random graph models are:
+
+- Epsilon neighborhood graph
+- (Mutual) K-nearest neighbors graph
+- Delaunay triangulation
+- Minimum spanning tree
+- Relative neighborhood graph
+- Beta skeleton
+
+There are various ways of generating plots of graph embeddings (Mercator projection, stereographic projection, 3D animation).
 
 ## Running the code
 
@@ -30,7 +43,15 @@ Put the files into a folder called 'data' in the repository.
 
 ## Images
 
-![alt text](figures/plots/eN_sample_3D.gif)
+<p align="center">
+  <img src="figures/plots/eN_sample_3D.gif" width="400" height="400"><br>
+  <em>Sample ε-neighborhood graph, ε=1900 km.</em>
+</p>
+
+<p align="center">
+  <img src="figures/degreedist/eN_1900.png" width="800" height="400"><br>
+  <em>Average degree distribution ε-neighborhood graph, ε=1900 km.</em>
+</p>
 
 ## Report
 

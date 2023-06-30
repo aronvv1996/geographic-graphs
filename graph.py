@@ -240,7 +240,7 @@ class GraphMethods():
         if save_to_file:
             if not os.path.exists(self.results_folder):
                 os.makedirs(self.results_folder)
-            with open(f'{self.results_folder}\\{file_name}', 'w') as f:
+            with open(f'{self.results_folder}\\{file_name}.txt', 'w') as f:
                 f.write(results)
 
         return results
